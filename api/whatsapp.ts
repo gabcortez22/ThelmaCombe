@@ -2,6 +2,35 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
+const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+const API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v27.0";
+
+const AUTO_REPLY =
+  "¡Hola! Gracias por escribir a Thelma Combe. Recibimos tu mensaje y te responderemos muy pronto.";
+
+// Sends a plain text reply. Free-form text only works inside the 24h window
+// opened by the customer's message, which is exactly our case.
+async function sendText(phoneNumberId: string, to: string, body: string): Promise<void> {
+  if (!ACCESS_TOKEN) {
+    console.warn("auto-reply skipped: WHATSAPP_ACCESS_TOKEN is not set");
+    return;
+  }
+  const res = await fetch(`https://graph.facebook.com/${API_VERSION}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body },
+    }),
+  });
+  if (!res.ok) {
+    console.error("auto-reply failed", { status: res.status, body: await res.text() });
+  } else {
+    console.log("auto-reply sent", { to, phoneNumberId });
+  }
+}
 
 // GET: Meta verifies the callback URL by sending hub.* query params.
 export function GET(request: Request): Response {
@@ -52,7 +81,6 @@ export async function POST(request: Request): Promise<Response> {
       const phoneNumberId = value.metadata?.phone_number_id;
 
       for (const message of value.messages ?? []) {
-        // TODO: bot logic goes here. Route by phoneNumberId if you add more numbers.
         console.log("message", {
           phoneNumberId,
           from: message.from,
@@ -60,6 +88,14 @@ export async function POST(request: Request): Promise<Response> {
           text: message.text?.body,
           id: message.id,
         });
+        // Simple auto-reply to every inbound message from a customer.
+        if (phoneNumberId && message.from) {
+          try {
+            await sendText(phoneNumberId, message.from, AUTO_REPLY);
+          } catch (err) {
+            console.error("auto-reply error", err);
+          }
+        }
       }
       for (const status of value.statuses ?? []) {
         console.log("status", { phoneNumberId, id: status.id, status: status.status });
