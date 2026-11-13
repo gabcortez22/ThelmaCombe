@@ -13,6 +13,7 @@ export function GET(request: Request): Response {
   if (VERIFY_TOKEN && mode === "subscribe" && token === VERIFY_TOKEN && challenge) {
     return new Response(challenge, { status: 200 });
   }
+  console.warn("webhook verification rejected", { mode, hasVerifyToken: Boolean(VERIFY_TOKEN) });
   return new Response("Forbidden", { status: 403 });
 }
 
@@ -27,7 +28,13 @@ function validSignature(rawBody: string, header: string | null): boolean {
 export async function POST(request: Request): Promise<Response> {
   const rawBody = await request.text();
 
+  console.log("webhook POST received", { bytes: rawBody.length });
+
   if (!validSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
+    console.warn("webhook rejected: invalid or missing signature", {
+      hasAppSecret: Boolean(APP_SECRET),
+      hasSignatureHeader: Boolean(request.headers.get("x-hub-signature-256")),
+    });
     return new Response("Invalid signature", { status: 401 });
   }
 
